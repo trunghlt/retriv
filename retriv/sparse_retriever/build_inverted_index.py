@@ -31,6 +31,7 @@ def build_inverted_index(
     n_docs: int,
     min_df: int = 1,
     show_progress: bool = True,
+    ngram_range: tuple[int, int] = (1, 2),
 ) -> Dict:
     vectorizer = CountVectorizer(
         tokenizer=lambda x: x,
@@ -38,6 +39,7 @@ def build_inverted_index(
         min_df=min_df,
         dtype=np.int16,
         token_pattern=None,
+        ngram_range=ngram_range,
     )
 
     # [n_docs x n_terms]

@@ -38,6 +38,7 @@ class SparseRetriever(BaseRetriever):
         do_acronyms_normalization: bool = True,
         do_punctuation_removal: bool = True,
         hyperparams: dict = None,
+        ngram_range: tuple[int, int] = (1, 1),
     ):
         """The Sparse Retriever is a traditional searcher based on lexical matching. It supports BM25, the retrieval model used by major search engines libraries, such as Lucene and Elasticsearch. retriv also implements the classic relevance model TF-IDF for educational purposes.
 
@@ -96,6 +97,8 @@ class SparseRetriever(BaseRetriever):
         self.tokenizer = get_tokenizer(tokenizer)
         self.stemmer = get_stemmer(stemmer)
         self.stopwords = [self.stemmer(sw) for sw in get_stopwords(stopwords)]
+
+        self.ngram_range = ngram_range
 
         self.id_mapping = None
         self.inverted_index = None
@@ -194,6 +197,7 @@ class SparseRetriever(BaseRetriever):
             n_docs=self.doc_count,
             min_df=self.min_df,
             show_progress=show_progress,
+            ngram_range=self.ngram_range,
         )
         self.avg_doc_len = np.mean(self.doc_lens, dtype=np.float32)
         self.vocabulary = set(self.inverted_index)
@@ -257,6 +261,36 @@ class SparseRetriever(BaseRetriever):
         """Internal usage."""
         return TypedList([self.inverted_index[t]["doc_ids"] for t in query_terms])
 
+    def _word_ngrams(self, tokens, stop_words=None):
+        """Turn tokens into a sequence of n-grams after stop words filtering"""
+        # handle stop words
+        if stop_words is not None:
+            tokens = [w for w in tokens if w not in stop_words]
+
+        # handle token n-grams
+        min_n, max_n = self.ngram_range
+        if max_n != 1:
+            original_tokens = tokens
+            if min_n == 1:
+                # no need to do any slicing for unigrams
+                # just iterate through the original tokens
+                tokens = list(original_tokens)
+                min_n += 1
+            else:
+                tokens = []
+
+            n_original_tokens = len(original_tokens)
+
+            # bind method outside of loop to reduce overhead
+            tokens_append = tokens.append
+            space_join = " ".join
+
+            for n in range(min_n, min(max_n + 1, n_original_tokens + 1)):
+                for i in range(n_original_tokens - n + 1):
+                    tokens_append(space_join(original_tokens[i : i + n]))
+
+        return tokens        
+
     def search(self, query: str, return_docs: bool = True, cutoff: int = 100) -> List:
         """Standard search functionality.
 
@@ -271,7 +305,7 @@ class SparseRetriever(BaseRetriever):
             List: results.
         """
 
-        query_terms = self.query_preprocessing(query)
+        query_terms = self._word_ngrams(self.query_preprocessing(query))
         if not query_terms:
             return {}
         query_terms = [t for t in query_terms if t in self.vocabulary]
@@ -326,7 +360,7 @@ class SparseRetriever(BaseRetriever):
 
         for q in queries:
             q_id, query = q["id"], q["text"]
-            query_terms = self.query_preprocessing(query)
+            query_terms = self._word_ngrams(self.query_preprocessing(query))
             query_terms = [t for t in query_terms if t in self.vocabulary]
             if not query_terms:
                 no_results_q_ids.append(q_id)
